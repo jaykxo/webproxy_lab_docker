@@ -11,7 +11,7 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
@@ -61,10 +61,10 @@ void doit(int fd)
   if (strstr(uri, "favicon.ico")) {
     return; // Ignore favicon.ico requests to avoid infinite loop
   }
-  if (strcasecmp(method, "GET")) {
+  if ((strcasecmp(method, "GET") != 0) && (strcasecmp(method, "HEAD") != 0)) {
     clienterror(fd, method, "501", "Not implemented",
-              "Tiny does not implement this method");
-      return;
+                "Tiny does not implement this method");
+    return;
   }
   read_requesthdrs(&rio);
 
@@ -82,7 +82,7 @@ void doit(int fd)
                   "Tiny couldn't read the file");
       return;
     }
-    serve_static(fd, filename, sbuf.st_size);
+    serve_static(fd, filename, sbuf.st_size, method);
   }
   else { /* Serve dynamic content */
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
@@ -154,7 +154,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
   }
 }
 
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int fd, char *filename, int filesize, char *method)
 {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -170,12 +170,15 @@ void serve_static(int fd, char *filename, int filesize)
   printf("Response headers:\n");
   printf("%s", buf);
 
-  /* Send response body to client */
-  srcfd = Open(filename, O_RDONLY, 0);
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-  Close(srcfd);
-  Rio_writen(fd, srcp, filesize);
-  Munmap(srcp, filesize);
+  /* Send response body to client only if not HEAD method */
+  if (strcasecmp(method, "HEAD") != 0) {
+      srcfd = Open(filename, O_RDONLY, 0);
+      srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+      Close(srcfd);
+      Rio_writen(fd, srcp, filesize);
+      Munmap(srcp, filesize);
+  }
+  
 }
 
 /*
@@ -191,6 +194,8 @@ void get_filetype(char *filename, char *filetype)
       strcpy(filetype, "image/png");
   else if (strstr(filename, ".jpg"))
       strcpy(filetype, "image/jpeg");
+  else if (strstr(filename, ".mp4"))
+      strcpy(filetype, "video/mp4");
   else
       strcpy(filetype, "text/plain");
 
